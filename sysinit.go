@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"os/user"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,22 +26,22 @@ func changeUser(u string) {
 	if u == "" {
 		return
 	}
-	userent, err := user.LookupId(u)
-	if err != nil {
-		userent, err = user.Lookup(u)
-	}
-	if err != nil {
-		log.Fatalf("Unable to find user %v: %v", u, err)
-	}
+	//userent, err := user.LookupId(u)
+	//if err != nil {
+	//	userent, err = user.Lookup(u)
+	//}
+	//if err != nil {
+	//	log.Fatalf("Unable to find user %v: %v", u, err)
+	//}
 
-	uid, err := strconv.Atoi(userent.Uid)
-	if err != nil {
-		log.Fatalf("Invalid uid: %v", userent.Uid)
-	}
-	gid, err := strconv.Atoi(userent.Gid)
-	if err != nil {
-		log.Fatalf("Invalid gid: %v", userent.Gid)
-	}
+	uid,_ := strconv.Atoi(u)
+	//if err != nil {
+	//	log.Fatalf("Invalid uid: %v", userent.Uid)
+	//}
+	gid,_ := strconv.Atoi("1001")
+	//if err != nil {
+	//	log.Fatalf("Invalid gid: %v", userent.Gid)
+	//}
 
 	if err := syscall.Setgid(gid); err != nil {
 		log.Fatalf("setgid failed: %v", err)
@@ -74,7 +73,22 @@ func executeProgram(name string, args []string) {
 		os.Exit(127)
 	}
 
+        rlim := new(syscall.Rlimit);
+        syscall.Getrlimit(6, rlim);
+        (*rlim).Max=512;
+        (*rlim).Cur=512;
+        if err:=syscall.Setrlimit(6, rlim); err!=nil {
+          panic(err)
+        }
+        cpuLim := new (syscall.Rlimit);
+        (*cpuLim).Max=2;
+        (*cpuLim).Cur=1;
+        if err:=syscall.Setrlimit(syscall.RLIMIT_CPU, cpuLim); err!=nil {
+          panic(err)
+        }
+        //startpid, _, err := syscall.StartProcess(path,args,procAttr);
 	if err := syscall.Exec(path, args, os.Environ()); err != nil {
+        //if err!=nil {
 		panic(err)
 	}
 }
