@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 func (srv *Server) DockerVersion() APIVersion {
@@ -903,7 +904,7 @@ func (srv *Server) deleteImage(img *Image, repoName, tag string) ([]APIRmi, erro
 	}
 	if tagDeleted {
 		imgs = append(imgs, APIRmi{Untagged: img.ShortID()})
-		srv.SendEvent("untagged", img.ShortID())
+		srv.SendEvent("untag", img.ShortID())
 	}
 	if len(srv.runtime.repositories.ByID()[img.ID]) == 0 {
 		if err := srv.deleteImageAndChildren(img.ID, &imgs); err != nil {
@@ -1109,7 +1110,7 @@ func NewServer(flGraphPath string, autoRestart, enableCors bool, dns ListOpts) (
 
 func (srv *Server) SendEvent(action, id string) {
 	for _, c := range srv.events {
-		c <- utils.JSONMessage{Status: action, ID: id}
+		c <- utils.JSONMessage{Status: action, ID: id, Time: time.Now().Unix()}
 	}
 }
 
