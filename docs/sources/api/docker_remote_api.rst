@@ -29,6 +29,10 @@ You can still call an old version of the api using /v1.0/images/<name>/insert
 What's new
 ----------
 
+Events (/events):
+
+Monitor docker's events via streaming or via polling
+
 Builder (/build):
 
 - Simplify the upload of the build context
