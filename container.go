@@ -202,14 +202,14 @@ func ParseRun(args []string, capabilities *Capabilities) (*Config, *HostConfig, 
 	return config, hostConfig, cmd, nil
 }
 
-type portMapping map[string]string
+type PortMapping map[string]string
 
 type NetworkSettings struct {
 	IPAddress   string
 	IPPrefixLen int
 	Gateway     string
 	Bridge      string
-	PortMapping map[string]portMapping
+	PortMapping map[string]PortMapping
 }
 
 // String returns a human-readable description of the port mapping defined in the settings
@@ -268,6 +268,26 @@ func (container *Container) ToDisk() (err error) {
 		return
 	}
 	return ioutil.WriteFile(container.jsonPath(), data, 0666)
+}
+
+func (container *Container) ReadHostConfig() (*HostConfig, error) {
+	data, err := ioutil.ReadFile(container.hostConfigPath())
+	if err != nil {
+		return &HostConfig{}, err
+	}
+	hostConfig := &HostConfig{}
+	if err := json.Unmarshal(data, hostConfig); err != nil {
+		return &HostConfig{}, err
+	}
+	return hostConfig, nil
+}
+
+func (container *Container) SaveHostConfig(hostConfig *HostConfig) (err error) {
+	data, err := json.Marshal(hostConfig)
+	if err != nil {
+		return
+	}
+	return ioutil.WriteFile(container.hostConfigPath(), data, 0666)
 }
 
 func (container *Container) generateLXCConfig() error {
@@ -473,6 +493,9 @@ func (container *Container) Attach(stdin io.ReadCloser, stdinCloser io.Closer, s
 func (container *Container) Start(hostConfig *HostConfig) error {
 	container.State.Lock()
 	defer container.State.Unlock()
+	if len(hostConfig.Binds) == 0 {
+		hostConfig, _ = container.ReadHostConfig()
+	}
 
 	if container.State.Running {
 		return fmt.Errorf("The container %s is already running.", container.ID)
@@ -574,6 +597,9 @@ func (container *Container) Start(hostConfig *HostConfig) error {
 				return nil
 			}
 			container.Volumes[volPath] = id
+			if isRW, exists := c.VolumesRW[volPath]; exists {
+				container.VolumesRW[volPath] = isRW
+			}
 		}
 	}
 
@@ -641,6 +667,7 @@ func (container *Container) Start(hostConfig *HostConfig) error {
 	container.waitLock = make(chan struct{})
 
 	container.ToDisk()
+	container.SaveHostConfig(hostConfig)
 	go container.monitor()
 	return nil
 }
@@ -693,9 +720,9 @@ func (container *Container) allocateNetwork() error {
 	if err != nil {
 		return err
 	}
-	container.NetworkSettings.PortMapping = make(map[string]portMapping)
-	container.NetworkSettings.PortMapping["Tcp"] = make(portMapping)
-	container.NetworkSettings.PortMapping["Udp"] = make(portMapping)
+	container.NetworkSettings.PortMapping = make(map[string]PortMapping)
+	container.NetworkSettings.PortMapping["Tcp"] = make(PortMapping)
+	container.NetworkSettings.PortMapping["Udp"] = make(PortMapping)
 	for _, spec := range container.Config.PortSpecs {
 		nat, err := iface.AllocatePort(spec)
 		if err != nil {
@@ -977,6 +1004,10 @@ func (container *Container) logPath(name string) string {
 
 func (container *Container) ReadLog(name string) (io.Reader, error) {
 	return os.Open(container.logPath(name))
+}
+
+func (container *Container) hostConfigPath() string {
+	return path.Join(container.root, "hostconfig.json")
 }
 
 func (container *Container) jsonPath() string {

@@ -114,26 +114,6 @@ func init() {
 
 // FIXME: test that ImagePull(json=true) send correct json output
 
-func newTestRuntime() (*Runtime, error) {
-	root, err := ioutil.TempDir("", "docker-test")
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Remove(root); err != nil {
-		return nil, err
-	}
-	if err := utils.CopyDirectory(unitTestStoreBase, root); err != nil {
-		return nil, err
-	}
-
-	runtime, err := NewRuntimeFromDirectory(root, false)
-	if err != nil {
-		return nil, err
-	}
-	runtime.UpdateCapabilities(true)
-	return runtime, nil
-}
-
 func GetTestImage(runtime *Runtime) *Image {
 	imgs, err := runtime.graph.All()
 	if err != nil {
@@ -148,10 +128,7 @@ func GetTestImage(runtime *Runtime) *Image {
 }
 
 func TestRuntimeCreate(t *testing.T) {
-	runtime, err := newTestRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime := mkRuntime(t)
 	defer nuke(runtime)
 
 	// Make sure we start we 0 containers
@@ -223,10 +200,7 @@ func TestRuntimeCreate(t *testing.T) {
 }
 
 func TestDestroy(t *testing.T) {
-	runtime, err := newTestRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime := mkRuntime(t)
 	defer nuke(runtime)
 	container, err := NewBuilder(runtime).Create(&Config{
 		Image: GetTestImage(runtime).ID,
@@ -270,10 +244,7 @@ func TestDestroy(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	runtime, err := newTestRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime := mkRuntime(t)
 	defer nuke(runtime)
 
 	builder := NewBuilder(runtime)
@@ -323,11 +294,8 @@ func TestGet(t *testing.T) {
 }
 
 func startEchoServerContainer(t *testing.T, proto string) (*Runtime, *Container, string) {
-	runtime, err := newTestRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	var err error
+	runtime := mkRuntime(t)
 	port := 5554
 	var container *Container
 	var strPort string
@@ -383,31 +351,50 @@ func TestAllocateTCPPortLocalhost(t *testing.T) {
 	defer nuke(runtime)
 	defer container.Kill()
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%v", port))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	for i := 0; i != 10; i++ {
+		conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%v", port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
 
-	input := bytes.NewBufferString("well hello there\n")
-	_, err = conn.Write(input.Bytes())
-	if err != nil {
-		t.Fatal(err)
+		input := bytes.NewBufferString("well hello there\n")
+		_, err = conn.Write(input.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 16)
+		read := 0
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		read, err = conn.Read(buf)
+		if err != nil {
+			if err, ok := err.(*net.OpError); ok {
+				if err.Err == syscall.ECONNRESET {
+					t.Logf("Connection reset by the proxy, socat is probably not listening yet, trying again in a sec")
+					conn.Close()
+					time.Sleep(time.Second)
+					continue
+				}
+				if err.Timeout() {
+					t.Log("Timeout, trying again")
+					conn.Close()
+					continue
+				}
+			}
+			t.Fatal(err)
+		}
+		output := string(buf[:read])
+		if !strings.Contains(output, "well hello there") {
+			t.Fatal(fmt.Errorf("[%v] doesn't contain [well hello there]", output))
+		} else {
+			return
+		}
 	}
-	buf := make([]byte, 16)
-	read := 0
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	read, err = conn.Read(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := string(buf[:read])
-	if !strings.Contains(output, "well hello there") {
-		t.Fatal(fmt.Errorf("[%v] doesn't contain [well hello there]", output))
-	}
+
+	t.Fatal("No reply from the container")
 }
 
-// Run a container with a TCP port allocated, and test that it can receive connections on localhost
+// Run a container with an UDP port allocated, and test that it can receive connections on localhost
 func TestAllocateUDPPortLocalhost(t *testing.T) {
 	runtime, container, port := startEchoServerContainer(t, "udp")
 	defer nuke(runtime)
@@ -421,12 +408,16 @@ func TestAllocateUDPPortLocalhost(t *testing.T) {
 
 	input := bytes.NewBufferString("well hello there\n")
 	buf := make([]byte, 16)
-	for i := 0; i != 10; i++ {
+	// Try for a minute, for some reason the select in socat may take ages
+	// to return even though everything on the path seems fine (i.e: the
+	// UDPProxy forwards the traffic correctly and you can see the packets
+	// on the interface from within the container).
+	for i := 0; i != 120; i++ {
 		_, err := conn.Write(input.Bytes())
 		if err != nil {
 			t.Fatal(err)
 		}
-		conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 		read, err := conn.Read(buf)
 		if err == nil {
 			output := string(buf[:read])

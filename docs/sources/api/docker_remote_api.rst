@@ -33,6 +33,10 @@ Events (/events):
 
 Monitor docker's events via streaming or via polling
 
+Listing processes (/top):
+
+- List the processes inside a container
+
 Builder (/build):
 
 - Simplify the upload of the build context
