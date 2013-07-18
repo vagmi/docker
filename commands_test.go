@@ -38,7 +38,7 @@ func setTimeout(t *testing.T, msg string, d time.Duration, f func()) {
 		f()
 		c <- false
 	}()
-	if <-c {
+	if <-c && msg != "" {
 		t.Fatal(msg)
 	}
 }
@@ -58,7 +58,6 @@ func assertPipe(input, output string, r io.Reader, w io.Writer, count int) error
 	}
 	return nil
 }
-
 
 // TestRunHostname checks that 'docker run -h' correctly sets a custom hostname
 func TestRunHostname(t *testing.T) {
@@ -90,7 +89,6 @@ func TestRunHostname(t *testing.T) {
 	})
 
 }
-
 
 // TestAttachStdin checks attaching to stdin without stdout and stderr.
 // 'docker run -i -a stdin' should sends the client's stdin to the command,
