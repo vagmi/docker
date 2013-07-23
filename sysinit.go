@@ -62,15 +62,16 @@ func cleanupEnv(env ListOpts) {
 }
 
 func executeProgram(name string, args []string) {
-	path, err := exec.LookPath(name)
-	if err != nil {
-		log.Printf("Unable to locate %v", name)
-		os.Exit(127)
-	}
-
-	if err := syscall.Exec(path, args, os.Environ()); err != nil {
-		panic(err)
-	}
+        cpuLim := new (syscall.Rlimit);
+        (*cpuLim).Max=28;
+        (*cpuLim).Cur=28;
+        if err:=syscall.Setrlimit(6, cpuLim); err!=nil {
+          fmt.Println("Error here")
+          panic(err)
+        }
+        cmd :=exec.Command(name,args[1:]...)
+        out,_:=cmd.CombinedOutput()
+        fmt.Printf("%s",out);
 }
 
 // Sys Init code
